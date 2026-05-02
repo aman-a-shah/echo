@@ -1,10 +1,11 @@
 import asyncio
+import sys
 from pynput import keyboard
 from capture import ScreenCapturer
 from audio import AudioController
 from backboard_client import BackboardMemoryClient
 from agents import AgentsOrchestrator
-import sys
+
 
 class EchoApp:
     def __init__(self):
@@ -16,83 +17,102 @@ class EchoApp:
         self.is_running = True
 
     async def initialize(self):
-        # Play startup sound
+        """Startup sequence — plays sound, connects Backboard, recalls last session."""
         self.audio.play_earcon("ready")
         await self.audio.speak("Echo is warming up...")
-        
-        # Initialize Backboard Memory
-        success = self.memory.initialize_session()
+
+        # Connect to Backboard (creates assistant + thread)
+        success = await self.memory.initialize_session()
         if not success:
-            await self.audio.speak("Failed to connect to Backboard. Exiting.")
+            await self.audio.speak("Failed to connect to memory system. Exiting.")
             sys.exit(1)
-            
-        # Get session summary
-        summary = self.memory.get_session_summary()
-        if summary:
+
+        # Recall last session from Backboard memory
+        summary = await self.memory.get_session_summary()
+        if summary and "first session" not in summary.lower():
             await self.audio.speak(f"Welcome back. {summary}")
         else:
-            await self.audio.speak("Echo is ready. Say 'Echo describe' to begin, or press Space.")
+            await self.audio.speak(
+                "Echo is ready. Press Space to describe the screen, "
+                "Q to ask a question, P to pause, Escape to stop narration."
+            )
 
     def on_press(self, key):
+        """Hotkey handler — runs in a separate thread from pynput."""
         try:
+            # Character keys
             if hasattr(key, 'char') and key.char:
                 char = key.char.lower()
+
                 if char == 'q':
-                    # Enter Question Mode
+                    # Question mode
                     self.audio.play_earcon("ready")
                     self.audio.stop_speech()
                     question = self.audio.listen_for_question()
                     if question:
-                        # We schedule this in the event loop since pynput runs in a separate thread
-                        asyncio.run_coroutine_threadsafe(self.orchestrator.ask_question(question), self.loop)
-                
-                elif char == 'p':
-                    # Pause/Resume
-                    is_paused = self.audio.toggle_pause()
-                    state_msg = "Paused" if is_paused else "Resumed"
-                    print(f"Echo {state_msg}")
-                    # Only auto narrate if unpaused
-                    self.orchestrator.auto_narrate = not is_paused
+                        asyncio.run_coroutine_threadsafe(
+                            self.orchestrator.ask_question(question), self.loop
+                        )
 
-                elif char == '=' or char == '+':
+                elif char == 'p':
+                    # Toggle pause
+                    is_paused = self.audio.toggle_pause()
+                    self.orchestrator.auto_narrate = not is_paused
+                    msg = "Paused." if is_paused else "Resumed."
+                    print(msg)
+
+                elif char in ('=', '+'):
                     self.audio.set_rate(self.audio.tts_rate + 25)
-                    print(f"Rate increased to {self.audio.tts_rate}")
+                    print(f"Speed: {self.audio.tts_rate} wpm")
 
                 elif char == '-':
-                    self.audio.set_rate(max(50, self.audio.tts_rate - 25))
-                    print(f"Rate decreased to {self.audio.tts_rate}")
+                    self.audio.set_rate(self.audio.tts_rate - 25)
+                    print(f"Speed: {self.audio.tts_rate} wpm")
 
+            # Special keys
             elif key == keyboard.Key.space:
-                # Trigger immediate description
-                self.orchestrator.auto_narrate = True # Enable continuous narration once started
-                asyncio.run_coroutine_threadsafe(self.orchestrator.trigger_narration(), self.loop)
+                # Trigger immediate narration and enable auto-narrate
+                self.orchestrator.auto_narrate = True
+                asyncio.run_coroutine_threadsafe(
+                    self.orchestrator.trigger_narration(), self.loop
+                )
 
             elif key == keyboard.Key.esc:
-                # Stop current narration immediately
+                # Stop current speech immediately
                 self.audio.stop_speech()
-                
+
         except AttributeError:
             pass
 
     async def run(self):
         await self.initialize()
-        
-        # Start Agents
+
+        # Start background agent loops
         self.orchestrator.start()
-        
-        # Start Hotkey Listener (runs in its own thread)
+
+        # Start keyboard listener in its own thread
         listener = keyboard.Listener(on_press=self.on_press)
         listener.start()
-        
-        # Keep main loop running
+
+        print("\n=== Echo is running ===")
+        print("Space      — Describe screen now")
+        print("Q          — Ask a question (speak after the chime)")
+        print("P          — Pause / Resume")
+        print("+ / -      — Speed up / slow down voice")
+        print("Esc        — Stop current narration")
+        print("Ctrl+C     — Quit Echo")
+        print("=======================\n")
+
         try:
             while self.is_running:
                 await asyncio.sleep(0.1)
         except KeyboardInterrupt:
-            print("Exiting Echo...")
+            print("\nShutting down Echo...")
         finally:
             self.orchestrator.stop()
             listener.stop()
+            self.audio.stop_speech()
+
 
 if __name__ == "__main__":
     app = EchoApp()

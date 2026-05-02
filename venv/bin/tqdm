@@ -1,6 +1,4 @@
-#!/bin/sh
-'''exec' "/Users/amanshah/Desktop/dev/web dev/echo/venv/bin/python3.11" "$0" "$@"
-' '''
+#!/Users/amanshah/Desktop/dev/webdev/echo/venv/bin/python3.11
 import sys
 from tqdm.cli import main
 if __name__ == '__main__':

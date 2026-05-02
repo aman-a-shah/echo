@@ -1,6 +1,5 @@
 import os
 from dotenv import load_dotenv
-
 load_dotenv()
 
 # API Keys
@@ -22,5 +21,5 @@ Respond ONLY with a short, urgent warning if an enemy or hazard is actively thre
 If there is no immediate danger, respond exactly with the word: SAFE."""
 
 # Agent Intervals
-NARRATOR_INTERVAL = 2.0  # seconds
-SENTINEL_INTERVAL = 0.5  # seconds
+NARRATOR_INTERVAL = 2.0   # seconds between auto-narrations
+SENTINEL_INTERVAL = 0.5   # seconds between danger checks
