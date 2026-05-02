@@ -1,0 +1,214 @@
+ECHO
+AI-Powered Voice Navigation for Blind Gamers
+Product Requirements Document  ·  HuskyHacks 2026
+🎯 Best Reach
+🧪 Wild Experiment
+🔧 Backboard.io
+✨ Google Gemini
+
+1. Problem Statement
+Over 285 million people worldwide live with visual impairment. For these individuals, video games — one of the world's largest entertainment industries — are almost entirely inaccessible. Existing solutions are fragmented: screen readers weren't built for fast-paced visual scenes, and the handful of accessible games built from scratch represent a tiny fraction of the catalog.
+
+Echo solves this at the infrastructure level. Rather than building one accessible game, Echo is a universal AI overlay that makes any game playable through voice — turning sound into the primary interface and AI into the player's eyes.
+
+2. Product Vision
+"Echo is the co-pilot that never stops watching — a voice-first AI companion that describes, remembers, and responds, so blind players can experience any game on equal footing."
+
+The interface is intentionally invisible. There is no screen to read, no mouse to click, no GUI to navigate. Echo exists entirely in audio — activated by voice, navigated by voice, and experienced through voice.
+
+3. Prize Target Strategy
+Echo is architected to compete across all four prize categories simultaneously. The table below maps each prize to the specific product decision that earns it.
+
+Prize
+How Echo Wins It
+🎯 Best Reach
+Directly removes the biggest barrier blind people face in gaming — visual exclusion. Serves 285M+ visually impaired individuals globally. Crosses both accessibility AND language barriers (multilingual narration).
+🧪 Wild Experiment
+The interface itself is the experiment: no screen, no cursor, no GUI. Sound IS the UX. Voice-activated, audio-first, physically operated via hotkeys or Siri Shortcuts. Subverts every assumption about how software is used.
+🔧 Backboard.io Track
+Backboard is not a bolt-on — it is the core infrastructure. Stateful memory persists game progress, player preferences, and discovered item locations across sessions. Multi-agent orchestration runs parallel watchers. RAG indexes game manuals.
+✨ Google Gemini
+Gemini Vision (gemini-2.5-flash) powers the real-time screen analysis pipeline. Its multimodal speed and accuracy at parsing game frames is central to the live narration loop.
+
+4. Core Features
+Features are classified P0 (must ship for demo), P1 (strong to have), P2 (stretch).
+
+Feature
+Description
+Pri
+Live Screen Narration
+Captures game frames every 1–2 seconds. Sends to Gemini Vision with a custom prompt tuned for spatial, action-oriented descriptions. Reads aloud via TTS.
+P0
+On-Demand Description
+Player presses a hotkey or says 'Echo, describe' to request an immediate full scene breakdown at any time.
+P0
+Question Mode
+Player can ask freeform questions: 'What's to my left?', 'How much health do I have?', 'Are there any enemies near me?' Gemini answers from the latest frame.
+P0
+Siri / Voice Launch
+macOS Shortcut or Siri command ('Hey Siri, start Echo') launches the app with no mouse interaction. Fully accessible onboarding.
+P0
+Backboard Memory
+Backboard stores key facts across sessions: player name, preferred narration style, previously discovered locations, inventory history, and game progress checkpoints.
+P0
+Session Continuity
+When the player returns, Echo greets them with a spoken summary: 'Welcome back. Last time you were in the dark forest at low health, heading toward the castle gate.'
+P1
+Multi-Agent Parallel Watchers
+Two Backboard agents run simultaneously: one narrates the scene, another monitors for danger and interrupts with urgent alerts ('Enemy approaching from the right!').
+P1
+Game Manual RAG
+Upload a game's manual or walkthrough as a document to Backboard. Echo can answer lore and strategy questions grounded in the actual game content.
+P1
+Narration Speed Control
+Voice commands: 'Echo, speak faster / slower / brief / detailed' adjust narration verbosity and TTS speed in real-time.
+P1
+Multilingual Support
+Player can ask Echo to narrate in any language. Backboard routes to an appropriate model; memory persists language preference.
+P2
+Sound Cues
+Distinct earcons (short audio tones) for health low, enemy nearby, item found — supplements narration with immediate non-verbal signals.
+P2
+
+5. Voice Interface Specification
+Echo has zero visual UI. All interaction is voice-in, audio-out. Below are the full command specifications for the demo.
+
+5.1  Hotkey Commands (always available)
+	•	Space bar — Trigger immediate scene description
+	•	Q — Enter question mode (Echo listens for a spoken question)
+	•	P — Pause / resume narration
+	•	Esc — Stop current narration immediately
+	•	+ / - — Increase / decrease TTS speaking rate
+
+5.2  Voice Commands (always listening)
+	•	"Echo, describe" — Full scene narration
+	•	"Echo, what's [direction]?" — Directional awareness query
+	•	"Echo, how much health?" — Read health/status bar
+	•	"Echo, what are my options?" — List available actions
+	•	"Echo, remember [fact]" — Store a custom memory to Backboard
+	•	"Echo, what happened last time?" — Recall previous session summary
+	•	"Echo, pause" / "Echo, stop" — Pause narration
+	•	"Echo, speak [faster/slower/brief/detailed]" — Adjust narration style
+
+5.3  Siri Shortcut (macOS launch)
+A macOS Shortcut named "Start Echo" launches the Python app and speaks "Echo is ready" when loaded. Accessible from: Hey Siri, Accessibility menu, or keyboard shortcut Cmd+Shift+E.
+
+6. Technical Architecture
+
+Layer
+Technology
+Role
+Screen Capture
+Python mss
+Cross-platform screen grab at configurable FPS. Lightweight, no GPU required.
+Vision AI
+Gemini 2.5 Flash
+Multimodal frame analysis. Tuned prompt for spatial, action-focused game descriptions. Fast latency critical.
+Memory & State
+Backboard.io
+Persistent game state, player preferences, session history. memory='Auto' handles extraction automatically.
+Multi-Agent
+Backboard Threads
+Separate threads for narrator agent and danger-watch agent running in parallel async loops.
+Game Manual RAG
+Backboard Documents
+PDF/text game manual uploaded once; Backboard handles chunking, indexing, retrieval at query time.
+Text-to-Speech
+macOS say / pyttsx3
+Zero-dependency TTS. macOS 'say' command for demo; pyttsx3 as cross-platform fallback.
+Voice Input
+SpeechRecognition + Whisper
+Always-listening hotword detection ('Echo'). Whisper for question transcription accuracy.
+Hotkey Listener
+Python pynput
+Global hotkeys work even when game window is focused. Non-blocking async listener.
+Orchestration
+Python asyncio
+Async event loop coordinates capture, vision, memory, TTS without blocking any layer.
+Launch
+macOS Shortcuts
+Siri-compatible shortcut launches app. Shell script as fallback for non-Apple platforms.
+
+7. Backboard Integration (Deep Dive)
+This section documents specifically how Echo uses Backboard's unique capabilities — written to satisfy the Backboard prize track judges.
+
+7.1  Why Backboard is Non-Optional Here
+A naive implementation would send each game frame to Gemini in isolation. The narration would be accurate but amnesiac — every description would be context-free. Backboard's stateful memory is what transforms Echo from a screen reader into a genuine AI co-pilot.
+
+Concrete example: without memory, Echo says 'There is a sword on the ground.' With Backboard memory, Echo says 'That sword is back — you left it here 20 minutes ago when your inventory was full.'
+
+7.2  Memory Architecture
+	•	One persistent Assistant per player profile
+	•	One Thread per play session (new thread on each launch, same assistant)
+	•	memory='Auto' on every message — Backboard extracts facts like item locations, health patterns, NPC names
+	•	On session start, Echo queries: 'Summarize what the player accomplished last session and their current game state'
+	•	Player can explicitly store memories: 'Echo, remember the red key is in the north tower'
+
+7.3  Multi-Agent Orchestration
+Two parallel async agents run throughout a session:
+
+	•	Narrator Agent — runs every 2 seconds, describes the current scene in natural language, reads aloud via TTS
+	•	Sentinel Agent — runs every 0.5 seconds with a danger-focused prompt ('Is there an enemy or hazard immediately threatening the player?'), triggers urgent audio alerts independently of narration
+
+Both agents share the same Backboard Assistant (same memory pool) but run on separate Threads, enabling true parallel context without interference.
+
+7.4  Document RAG
+Before the demo, the game's manual is uploaded to Backboard as a document. During play, question mode queries are enriched with RAG context automatically. Example: player asks 'how do I defeat the forest boss?' — Backboard retrieves relevant manual sections and Gemini synthesizes a strategy from both the current screen state and the manual.
+
+8. User Journey (Demo Script)
+The following sequence will be used for the hackathon demo. All narration is spoken aloud — there is no screen to show the judges.
+
+Step 1 — Launch
+"Hey Siri, start Echo." → App launches, TTS speaks: "Echo is ready. Say Echo describe to begin."
+Step 2 — First Description
+Player presses Space. Echo narrates: "You're in a dimly lit dungeon corridor. There's a door 10 feet ahead to the left. A health potion glows on a barrel to your right. No immediate threats visible."
+Step 3 — Question Mode
+Player says: "Echo, what's to my left?" → Echo responds: "To your left is a locked iron door. You don't have the key for it yet."
+Step 4 — Danger Alert
+Sentinel agent fires: "Warning — skeleton enemy approaching from behind you." (interrupts narrator, plays earcon tone)
+Step 5 — Memory Demonstration
+Player says: "Echo, remember the blue key is in the east room." Echo confirms. App is closed. Relaunched. Echo greets: "Welcome back. You were in the dungeon corridor. You stored a note: the blue key is in the east room."
+Step 6 — Manual RAG
+Player asks: "How do I open the iron door?" → Echo retrieves from the uploaded game manual and responds: "According to the game guide, the iron door requires the Dungeon Master key, found in the boss chamber on level 3."
+
+9. MVP Scope & Build Plan
+Target: working demo in 12–16 hours of build time.
+
+Hour 0–2: Foundation
+	•	Python project setup, install mss, pynput, SpeechRecognition, pyttsx3, backboard-sdk
+	•	Gemini API key + Backboard API key configured
+	•	Basic screen capture loop printing to terminal
+Hour 2–5: Vision Pipeline
+	•	Frame → Gemini Vision with narration prompt
+	•	Response → pyttsx3 TTS spoken aloud
+	•	Hotkey (Space) triggers on-demand description
+Hour 5–8: Backboard Integration
+	•	Create Assistant with gaming narrator system prompt
+	•	Thread per session, memory='Auto' on every message
+	•	Session start summary query from memory
+	•	'Echo, remember...' voice command stores explicit memory
+Hour 8–11: Voice + Question Mode
+	•	Always-listening hotword: 'Echo'
+	•	Question transcription via SpeechRecognition / Whisper
+	•	Questions enriched with current frame + Backboard context
+Hour 11–13: Multi-Agent + RAG
+	•	Sentinel agent on parallel async thread
+	•	Upload game manual PDF to Backboard Documents
+	•	RAG queries on question mode
+Hour 13–16: Polish & Demo
+	•	macOS Shortcut for Siri launch
+	•	Earcon sound cues for danger/items
+	•	Demo script rehearsal and edge case handling
+
+10. Impact & Accessibility Statement
+Echo targets the intersection of three underserved populations:
+
+	•	Blind and visually impaired gamers (285M+ people globally with visual impairment)
+	•	Low-vision players who struggle with fast-paced visuals but aren't fully blind
+	•	Players with motor disabilities who benefit from voice navigation over complex controllers
+
+Beyond gaming, Echo's architecture — screen capture → multimodal AI → stateful memory → voice output — is a blueprint for making any visual software accessible. The hackathon demo proves the concept on games, but the same stack could narrate design tools, coding environments, or operating system interfaces.
+
+Echo doesn't ask game developers to rebuild their games. It works on top of what already exists.
+
+Echo  ·  HuskyHacks 2026  ·  Built with Backboard.io + Google Gemini
