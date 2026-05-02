@@ -1,0 +1,3 @@
+#!/bin/bash
+cd "/Users/amanshah/Desktop/dev/webdev/echo"
+exec "/Users/amanshah/Desktop/dev/webdev/echo/venv/bin/python" "/Users/amanshah/Desktop/dev/webdev/echo/echo_menubar.py"

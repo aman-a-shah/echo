@@ -1,126 +1,192 @@
 import asyncio
-import base64
-import google.generativeai as genai
-from config import GEMINI_API_KEY, SENTINEL_SYSTEM_PROMPT, NARRATOR_INTERVAL, SENTINEL_INTERVAL
+import time
+from config import NARRATOR_INTERVAL, SENTINEL_INTERVAL, CHANGE_THRESHOLD, CHANGE_CHECK_INTERVAL
 from capture import ScreenCapturer
 from audio import AudioController
 from backboard_client import BackboardMemoryClient
+from vision_client import VisionClient
 
 
 class AgentsOrchestrator:
-    def __init__(self, capture: ScreenCapturer, audio: AudioController, memory: BackboardMemoryClient):
+    def __init__(
+        self,
+        capture: ScreenCapturer,
+        audio: AudioController,
+        memory: BackboardMemoryClient,
+        vision: VisionClient,
+    ):
         self.capture = capture
-        self.audio = audio
-        self.memory = memory
+        self.audio   = audio
+        self.memory  = memory
+        self.vision  = vision
 
-        # Gemini for sentinel (vision, no memory needed — pure speed)
-        genai.configure(api_key=GEMINI_API_KEY)
-        self.sentinel_model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash",
-            system_instruction=SENTINEL_SYSTEM_PROMPT
-        )
-        # Gemini for narrator vision (image → text, then Backboard adds memory)
-        self.narrator_vision_model = genai.GenerativeModel(
-            model_name="gemini-2.5-flash"
-        )
+        self.running           = False
+        self.auto_narrate      = True
+        self.narrator_task     = None
+        self.sentinel_task     = None
+        self._last_narration: str        = ""
+        self._last_narration_time: float = 0.0
+        self._narration_in_progress      = False
 
-        self.running = False
-        self.auto_narrate = False
-        self.narrator_task = None
-        self.sentinel_task = None
+    # ------------------------------------------------------------------ #
+    #  Narrator — change-driven                                           #
+    # ------------------------------------------------------------------ #
 
     async def narrator_loop(self):
-        """Runs every NARRATOR_INTERVAL seconds for continuous narration."""
+        """
+        Polls every CHANGE_CHECK_INTERVAL seconds.
+        Key fix: capture_if_changed() (which advances _last_frame) is only
+        called when we are actually ready to narrate — not while a narration
+        is in flight. Otherwise the baseline keeps advancing during the API
+        call, and the next diff shows 0 change even though the screen moved.
+        """
         while self.running:
-            if self.auto_narrate and not self.audio.is_paused:
-                await self.trigger_narration()
-            await asyncio.sleep(NARRATOR_INTERVAL)
+            await asyncio.sleep(CHANGE_CHECK_INTERVAL)
 
-    async def trigger_narration(self):
+            if not self.auto_narrate or self.audio.is_paused:
+                continue
+
+            # Don't advance the diff baseline while an API call is in flight
+            if self._narration_in_progress:
+                continue
+
+            # Cooldown check before doing any capture work
+            if time.monotonic() - self._last_narration_time < NARRATOR_INTERVAL:
+                continue
+
+            if self.vision.is_rate_limited():
+                continue
+
+            # Cheap local pixel diff — only called when we're ready to act
+            img, score = self.capture.capture_if_changed(threshold=CHANGE_THRESHOLD)
+            if img is None:
+                continue
+
+            # Fire off as a background task — loop keeps running immediately
+            self._last_narration_time = time.monotonic()
+            asyncio.get_event_loop().create_task(self._do_narration(score))
+
+    async def _do_narration(self, score: float):
         """
-        Two-step process:
-        1. Gemini Vision reads the screen and produces a raw description
-        2. That description is sent to Backboard with memory='Auto'
-           so context is stored and recalled across sessions
+        Captures a FRESH frame right before the API call.
+        _narration_in_progress is ALWAYS cleared in finally — can never get stuck.
         """
-        print("Narrator: Capturing frame...")
+        if self._narration_in_progress:
+            return
+        self._narration_in_progress = True
+
         try:
             img = self.capture.capture_frame()
-            img_bytes = self.capture.capture_frame_bytes()
 
-            # Step 1: Gemini Vision — describe the raw frame
-            vision_response = self.narrator_vision_model.generate_content([
+            if score > 0.3:
+                context = "The scene has changed significantly."
+            elif score > 0.1:
+                context = "Something has changed on screen."
+            else:
+                context = "There is a small but potentially important change on screen."
+
+            prompt = (
+                "You are Echo, a voice assistant for a blind gamer. "
+                f"{context} "
                 "Describe what is on the game screen right now. "
                 "Focus on: player position, enemies, items, health UI, and immediate hazards. "
-                "Be concise — 2-3 sentences max.",
-                img
-            ])
-            raw_description = vision_response.text.strip()
-            print(f"Vision raw: {raw_description}")
-
-            # Step 2: Backboard — enrich with memory context
-            memory_prompt = (
-                f"Current screen: {raw_description}\n\n"
-                "Based on your memory of my previous sessions, narrate this moment for me. "
-                "Reference past context if relevant (e.g. 'that enemy is back', 'you left that item earlier'). "
-                "Keep it to 2-3 sentences."
+                "Be concise — 2-3 sentences max."
             )
-            narration = await self.memory.query_with_memory(memory_prompt)
-            print(f"Narration: {narration}")
-            await self.audio.speak(narration, interrupt=True)
+
+            try:
+                raw = await asyncio.wait_for(self.vision.describe(img, prompt), timeout=15.0)
+            except asyncio.TimeoutError:
+                print("[Narrator] Vision API timed out — skipping")
+                return
+
+            if raw is None:
+                return  # rate limited
+
+            if raw == self._last_narration:
+                return  # nothing new to say
+            self._last_narration = raw
+
+            try:
+                memory_prompt = (
+                    f"Current screen: {raw}\n\n"
+                    "Based on your memory of my previous sessions, narrate this moment. "
+                    "Reference past context if relevant. Keep it to 2-3 sentences."
+                )
+                narration = await asyncio.wait_for(
+                    self.memory.query_with_memory(memory_prompt), timeout=10.0
+                )
+                print(f"Narration (diff={score:.2f}): {narration}")
+                await self.audio.speak(narration, interrupt=True)
+            except asyncio.TimeoutError:
+                print("[Narrator] Memory API timed out — using raw description")
+                await self.audio.speak(raw, interrupt=True)
+            except Exception as e:
+                print(f"Memory error, using raw description: {e}")
+                await self.audio.speak(raw, interrupt=True)
 
         except Exception as e:
-            print(f"Narrator error: {e}")
+            print(f"[Narrator] Unexpected error: {e}")
+        finally:
+            self._narration_in_progress = False  # ALWAYS released
+
+    # ------------------------------------------------------------------ #
+    #  Sentinel                                                            #
+    # ------------------------------------------------------------------ #
 
     async def sentinel_loop(self):
-        """
-        Fast danger-detection loop. Bypasses Backboard memory intentionally
-        for minimum latency — just Gemini Vision checking for threats.
-        """
+        """Danger detection on its own fixed interval, independent of narrator."""
         while self.running:
-            if not self.audio.is_paused:
-                try:
-                    img = self.capture.capture_frame()
-                    response = self.sentinel_model.generate_content([
-                        "Is there an immediate danger to the player right now?",
-                        img
-                    ])
-                    text = response.text.strip()
-                    if "SAFE" not in text.upper():
-                        print(f"Sentinel Alert: {text}")
-                        self.audio.play_earcon("danger")
-                        await self.audio.speak(text, interrupt=True)
-                except Exception as e:
-                    print(f"Sentinel error: {e}")
-            await asyncio.sleep(SENTINEL_INTERVAL)
+            wait = max(SENTINEL_INTERVAL, self.vision._state.backoff)
+            await asyncio.sleep(wait)
+
+            if self.audio.is_paused:
+                continue
+
+            img  = self.capture.capture_frame()
+            text = await self.vision.sentinel(img)
+
+            if text and "SAFE" not in text.upper():
+                print(f"Sentinel Alert: {text}")
+                self.audio.play_earcon("danger")
+                await self.audio.speak(text, interrupt=True)
+
+    # ------------------------------------------------------------------ #
+    #  Q&A                                                                 #
+    # ------------------------------------------------------------------ #
 
     async def ask_question(self, question: str):
-        """
-        Question mode: user asks something freeform.
-        Vision sees the current screen, Backboard adds memory context.
-        """
-        print(f"Question: {question}")
+        print(f"You asked: {question}")
+        img = self.capture.capture_frame()
+
+        prompt = (
+            f"The player (who is blind) is asking: '{question}'. "
+            "Describe only the parts of the game screen relevant to answering this question."
+        )
+        visual_context = await self.vision.describe(img, prompt)
+
+        if visual_context is None:
+            await self.audio.speak(
+                "I couldn't check the screen right now — please try again in a moment.",
+                interrupt=True,
+            )
+            return
+
         try:
-            img = self.capture.capture_frame()
-
-            # Get visual context
-            vision_response = self.narrator_vision_model.generate_content([
-                f"The player is asking: '{question}'. What does the current screen show that's relevant?",
-                img
-            ])
-            visual_context = vision_response.text.strip()
-
-            # Answer with memory
             memory_prompt = (
                 f"The player asks: '{question}'\n"
                 f"Current screen context: {visual_context}\n"
-                "Answer the question using both the screen context and your memory of past sessions."
+                "Answer using both the screen context and your memory of past sessions."
             )
             answer = await self.memory.query_with_memory(memory_prompt)
             print(f"Answer: {answer}")
             await self.audio.speak(answer, interrupt=True)
         except Exception as e:
-            print(f"Question error: {e}")
+            print(f"Memory error during Q&A: {e}")
+            await self.audio.speak(visual_context, interrupt=True)
+
+    # ------------------------------------------------------------------ #
+    #  Lifecycle                                                           #
+    # ------------------------------------------------------------------ #
 
     def start(self):
         self.running = True
