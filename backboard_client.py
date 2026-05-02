@@ -1,5 +1,7 @@
+import asyncio
+import google.generativeai as genai
 from backboard import BackboardClient
-from config import BACKBOARD_API_KEY, NARRATOR_SYSTEM_PROMPT, MEMORY_LLM
+from config import BACKBOARD_API_KEY, NARRATOR_SYSTEM_PROMPT, GEMINI_API_KEY
 
 
 class BackboardMemoryClient:
@@ -7,6 +9,16 @@ class BackboardMemoryClient:
         self.client = BackboardClient(api_key=BACKBOARD_API_KEY)
         self.assistant_id = None
         self.thread_id = None
+        
+        # Configure local LLM to bypass Backboard generation costs
+        genai.configure(api_key=GEMINI_API_KEY)
+        self.llm = genai.GenerativeModel(
+            "gemini-2.5-flash",
+            system_instruction=(
+                "You are Echo, a gaming companion. Answer the user's prompt using the retrieved memories. "
+                "If there are no relevant memories, do not apologize—just answer the prompt naturally, or if asked about the past, say it's your first session together."
+            )
+        )
 
     async def initialize_session(self):
         print("Initializing Backboard memory session...")
@@ -28,17 +40,41 @@ class BackboardMemoryClient:
         if not self.thread_id:
             return "Memory not initialized."
         try:
-            response = await self.client.add_message(
+            # 1. Log to Backboard for passive memory extraction (costs no LLM chat credits)
+            await self.client.add_message(
                 thread_id=self.thread_id,
                 content=prompt,
-                llm_provider=MEMORY_LLM["provider"],
-                model_name=MEMORY_LLM["model"],
-                memory="Auto",
-                stream=False,
+                send_to_llm=False,
             )
-            return response.content
+            
+            # 2. Retrieve relevant memory context via RAG
+            memories_response = await self.client.search_memories(
+                assistant_id=self.assistant_id,
+                query=prompt,
+                limit=5
+            )
+            
+            # 3. Format memories
+            memory_context = ""
+            if memories_response and "memories" in memories_response:
+                memories = memories_response["memories"]
+                memory_context = "\n".join([f"- {m.get('content', '')}" for m in memories])
+            
+            # 4. Synthesize response locally
+            if memory_context.strip():
+                local_prompt = f"Relevant Past Memories:\n{memory_context}\n\nUser Prompt: {prompt}"
+            else:
+                local_prompt = prompt
+                
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: self.llm.generate_content(local_prompt)
+            )
+            return response.text.strip()
+            
         except Exception as e:
-            print(f"Backboard error: {e}")
+            print(f"Backboard/Local LLM error: {e}")
             return "There was an error communicating with memory."
 
     async def explicit_memory_store(self, fact: str) -> str:

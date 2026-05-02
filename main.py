@@ -24,6 +24,7 @@ class EchoApp:
         )
         self.loop       = asyncio.get_event_loop()
         self.is_running = True
+        self._is_listening = False
 
         # Provider cycling state
         self._provider_index = DEFAULT_VISION_PROVIDER_INDEX
@@ -79,20 +80,10 @@ class EchoApp:
                 char = key.char.lower()
 
                 if char == 'q':
-                    # Beep → stop any speech → listen
-                    self.audio.play_earcon("question")
-                    self.audio.stop_speech()
-                    question = self.audio.listen_for_question()
-                    if question:
-                        asyncio.run_coroutine_threadsafe(
-                            self.orchestrator.ask_question(question), self.loop
-                        )
-                    else:
-                        self.audio.play_earcon("error")
-                        asyncio.run_coroutine_threadsafe(
-                            self.audio.speak("I didn't catch that — try again.", interrupt=True),
-                            self.loop,
-                        )
+                    if self._is_listening:
+                        return
+                    self._is_listening = True
+                    asyncio.run_coroutine_threadsafe(self._handle_question(), self.loop)
 
                 elif char == 'p':
                     is_paused = self.audio.toggle_pause()
@@ -146,6 +137,20 @@ class EchoApp:
         """Speak even while paused — used for pause confirmation."""
         import subprocess
         subprocess.Popen(["say", text])
+
+    async def _handle_question(self):
+        """Runs the synchronous listen block in an executor so we don't block pynput."""
+        try:
+            self.audio.play_earcon("question")
+            self.audio.stop_speech()
+            question = await self.loop.run_in_executor(None, self.audio.listen_for_question)
+            if question:
+                await self.orchestrator.ask_question(question)
+            else:
+                self.audio.play_earcon("error")
+                await self.audio.speak("I didn't catch that — try again.", interrupt=True)
+        finally:
+            self._is_listening = False
 
     # ------------------------------------------------------------------ #
     #  Main loop                                                           #

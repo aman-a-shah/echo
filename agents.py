@@ -165,11 +165,7 @@ class AgentsOrchestrator:
         visual_context = await self.vision.describe(img, prompt)
 
         if visual_context is None:
-            await self.audio.speak(
-                "I couldn't check the screen right now — please try again in a moment.",
-                interrupt=True,
-            )
-            return
+            visual_context = "Vision API unavailable (rate limited). I cannot see the screen right now, but please answer based on memory if possible."
 
         try:
             memory_prompt = (

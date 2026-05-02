@@ -25,27 +25,27 @@ VISION_PROVIDERS = [
         },
     },
     {
-        "id":     "openrouter_qwen",
-        "label":  "Open Router Qwen",
+        "id":     "openrouter_nvidia",
+        "label":  "Open Router NVIDIA",
         "models": {
-            "narrator": "qwen/qwen2.5-vl-72b-instruct:free",
-            "sentinel": "qwen/qwen2.5-vl-72b-instruct:free",
+            "narrator": "nvidia/nemotron-nano-12b-v2-vl:free",  # vision + tools, 128K
+            "sentinel": "nvidia/nemotron-nano-12b-v2-vl:free",
         },
     },
     {
         "id":     "openrouter_gemma",
         "label":  "Open Router Gemma",
         "models": {
-            "narrator": "google/gemma-3-27b-it:free",   # Gemma 3 has vision; Gemma 4 does not on OR
+            "narrator": "google/gemma-3-27b-it:free",  # vision, 131K
             "sentinel": "google/gemma-3-27b-it:free",
         },
     },
     {
-        "id":     "openrouter_nvidia",
-        "label":  "Open Router NVIDIA",
+        "id":     "openrouter_gemma4",
+        "label":  "Open Router Gemma 4",
         "models": {
-            "narrator": "nvidia/nemotron-nano-12b-v2-vl:free",  # vision + tools
-            "sentinel": "nvidia/nemotron-nano-12b-v2-vl:free",
+            "narrator": "google/gemma-4-31b-it:free",  # vision + tools, 262K
+            "sentinel": "google/gemma-4-31b-it:free",
         },
     },
 ]
