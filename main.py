@@ -21,13 +21,13 @@ class EchoApp:
         self.audio.play_earcon("ready")
         await self.audio.speak("Echo is warming up...")
 
-        # Connect to Backboard (creates assistant + thread)
+        # Connect to Backboard
         success = await self.memory.initialize_session()
         if not success:
-            await self.audio.speak("Failed to connect to memory system. Exiting.")
-            sys.exit(1)
+            self.audio.play_earcon("error")
+            await self.audio.speak("Memory unavailable, running without memory.")
 
-        # Recall last session from Backboard memory
+        # Recall last session
         summary = await self.memory.get_session_summary()
         if summary and "first session" not in summary.lower():
             await self.audio.speak(f"Welcome back. {summary}")
@@ -40,46 +40,51 @@ class EchoApp:
     def on_press(self, key):
         """Hotkey handler — runs in a separate thread from pynput."""
         try:
-            # Character keys
             if hasattr(key, 'char') and key.char:
                 char = key.char.lower()
 
                 if char == 'q':
-                    # Question mode
-                    self.audio.play_earcon("ready")
+                    # Question mode — morse beep signals listening
+                    self.audio.play_earcon("question")
                     self.audio.stop_speech()
                     question = self.audio.listen_for_question()
                     if question:
                         asyncio.run_coroutine_threadsafe(
                             self.orchestrator.ask_question(question), self.loop
                         )
+                    else:
+                        # Nothing heard — signal error
+                        self.audio.play_earcon("error")
 
                 elif char == 'p':
-                    # Toggle pause
+                    # Pause / resume
                     is_paused = self.audio.toggle_pause()
                     self.orchestrator.auto_narrate = not is_paused
-                    msg = "Paused." if is_paused else "Resumed."
-                    print(msg)
+                    self.audio.play_earcon("pause" if is_paused else "resume")
+                    print("Paused." if is_paused else "Resumed.")
 
                 elif char in ('=', '+'):
                     self.audio.set_rate(self.audio.tts_rate + 25)
+                    self.audio.play_earcon("item")
                     print(f"Speed: {self.audio.tts_rate} wpm")
 
                 elif char == '-':
                     self.audio.set_rate(self.audio.tts_rate - 25)
+                    self.audio.play_earcon("item")
                     print(f"Speed: {self.audio.tts_rate} wpm")
 
-            # Special keys
             elif key == keyboard.Key.space:
-                # Trigger immediate narration and enable auto-narrate
+                # Trigger narration
+                self.audio.play_earcon("ready")
                 self.orchestrator.auto_narrate = True
                 asyncio.run_coroutine_threadsafe(
                     self.orchestrator.trigger_narration(), self.loop
                 )
 
             elif key == keyboard.Key.esc:
-                # Stop current speech immediately
+                # Stop speech immediately
                 self.audio.stop_speech()
+                self.audio.play_earcon("error")
 
         except AttributeError:
             pass
@@ -87,16 +92,14 @@ class EchoApp:
     async def run(self):
         await self.initialize()
 
-        # Start background agent loops
         self.orchestrator.start()
 
-        # Start keyboard listener in its own thread
         listener = keyboard.Listener(on_press=self.on_press)
         listener.start()
 
         print("\n=== Echo is running ===")
         print("Space      — Describe screen now")
-        print("Q          — Ask a question (speak after the chime)")
+        print("Q          — Ask a question (speak after the beep)")
         print("P          — Pause / Resume")
         print("+ / -      — Speed up / slow down voice")
         print("Esc        — Stop current narration")

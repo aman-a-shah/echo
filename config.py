@@ -5,6 +5,7 @@ load_dotenv()
 # API Keys
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BACKBOARD_API_KEY = os.getenv("BACKBOARD_API_KEY")
+CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY")
 
 # App Configuration
 HOTWORD = "echo"
@@ -22,4 +23,12 @@ If there is no immediate danger, respond exactly with the word: SAFE."""
 
 # Agent Intervals
 NARRATOR_INTERVAL = 2.0   # seconds between auto-narrations
-SENTINEL_INTERVAL = 0.5   # seconds between danger checks
+SENTINEL_INTERVAL = 10.0   # seconds between danger checks
+
+VISION_PROVIDER = "gemini"
+MEMORY_PROVIDER = "cerebras"
+
+MEMORY_LLM = {
+    "provider": "google",
+    "model": "gemini-2.5-flash"
+}

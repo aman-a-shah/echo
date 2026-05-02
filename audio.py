@@ -61,25 +61,19 @@ class AudioController:
             return ""
 
     def play_earcon(self, sound_type: str):
-        """Plays a distinct system sound for alerts."""
-        if self.is_paused:
+        """Plays a distinct system sound for UI feedback."""
+        # Always play resume/error sounds even when paused
+        if self.is_paused and sound_type not in ("resume", "error"):
             return
         sounds = {
-            "danger": "/System/Library/Sounds/Basso.aiff",
-            "item":   "/System/Library/Sounds/Glass.aiff",
-            "ready":  "/System/Library/Sounds/Tink.aiff",
+            "danger":   "/System/Library/Sounds/Basso.aiff",   # deep thud — danger
+            "item":     "/System/Library/Sounds/Glass.aiff",   # glass ding — item found
+            "ready":    "/System/Library/Sounds/Tink.aiff",    # light tick — startup
+            "pause":    "/System/Library/Sounds/Funk.aiff",    # descending — paused
+            "resume":   "/System/Library/Sounds/Pop.aiff",     # pop — resumed
+            "question": "/System/Library/Sounds/Morse.aiff",   # beep — listening
+            "error":    "/System/Library/Sounds/Sosumi.aiff",  # classic mac error
+            "memory":   "/System/Library/Sounds/Ping.aiff",    # ping — memory stored
         }
         sound_file = sounds.get(sound_type, sounds["ready"])
         subprocess.Popen(["afplay", sound_file])
-
-
-if __name__ == "__main__":
-    async def test():
-        ac = AudioController()
-        ac.play_earcon("ready")
-        await ac.speak("Audio controller is working correctly.")
-        print("Speak a test question now...")
-        q = ac.listen_for_question()
-        if q:
-            await ac.speak(f"You said: {q}")
-    asyncio.run(test())
